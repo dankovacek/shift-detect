@@ -28,99 +28,31 @@ import scipy.optimize as sci_optim
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 
-SITES = {
-    'lillooet': {
-        'name': 'lillooet',
-        'ID': '08MG005',
-        'DA': 2100,
-        'filename': 'lillooet.csv'
-    },
-    'squamish': {
-        'name': 'squamish',
-        'ID': '08GA022',
-        'DA': 2350,
-        'filename': 'squamish.csv'
-    },
-    'elaho': {
-        'name': 'elaho',
-        'ID': '08GA071',
-        'DA': 1200,
-        'filename': 'elaho.csv'
-    },
-    'stave': {
-        'name': 'stave',
-        'ID': '08MH147',
-        'DA': 290,
-        'filename': 'stave.csv'
-    },
-}
-
-
-class Site(dict):
-    def __getattr__(self, name):
-        if name in self:
-            return self[name]
-        else:
-            raise AttributeError("No such attribute: " + name)
-
-    def __setattr__(self, name, value):
-        self[name] = value
-
-    def __delattr__(self, name):
-        if name in self:
-            del self[name]
-        else:
-            raise AttributeError("No such attribute: " + name)
-
-
-def estimateGaussian(df):
-    headers = df.columns.values
-    i = 0
-    mu, sigma2 = [], []
-    m = len(df.index.values)
-    for h in headers:
-        mu += [np.mean(df[h])]
-        sigma2 += [np.var(df[h]) * ((m - 1) / m)]
-    return mu, sigma2
-
-
-def multivariateGaussian(X, mu, sigma2):
-    """Return the multivariate Gaussian distribution on array pos.
-
-    pos is an array constructed by packing the meshed arrays of variables
-    x_1, x_2, x_3, ..., x_k into its _last_ dimension.
-    """
-    k = len(mu)
-    X_mu = X - mu
-    norm_const = (2 * math.pi)**(-k / 2) * np.linalg.det(sigma2)**(-0.5)
-    times = np.sum(np.multiply(X_mu.dot(np.linalg.pinv(sigma2)), X_mu), axis=1)
-    inner = np.exp(-0.5 * times)
-    return norm_const * inner
-
 
 @lru_cache()
-def load_data(filename, DA, ID, name, classifier):
+def load_data(file_path, site_name):
+    data = pd.read_csv(file_path, header=14, parse_dates=[
+                       'ISO 8601 UTC'])
 
-    fname = os.path.join(DATA_DIR, filename)
-    data = pd.read_csv(fname, header=1, parse_dates=['Date'])
-    # mH20 = 0.703070 * psi
-    data['Value'] = data['Value'].astype(float)
+    data.rename(columns=lambda x: x.strip(), inplace=True)
+    data.rename(columns={
+        'ISO 8601 UTC': 'DateTime',
+        'Value': 'Stage_' + site_name,
+        'Approval Level': 'Approval_Level_' + site_name,
+        'Grade': 'Grade_' + site_name,
+        'Qualifiers': 'Qualifiers_' + site_name,
+    }, inplace=True)
+    data['Stage_' + site_name] = data['Stage_' + site_name].astype(float)
+    min_stage = data['Stage_' + site_name].min()
+    max_stage = data['Stage_' + site_name].max()
+    data['normalized_stage_' + site_name] = (
+        data['Stage_' + site_name] - min_stage) / (max_stage - min_stage)
 
-    # filter by PARAM.  WSC publishes data as
-    # flow = 1, stage = 2
-    data = data[data.PARAM == 1]
-    df = pd.DataFrame()
-    df['Date'] = data['Date']
-    df['daily_flow_' + classifier] = data['Value'].astype(float)
-    df['daily_ur_' + classifier] = (data['Value'] * 1000 / DA).astype(float)
-    df[classifier + '_flag_val'] = 0
-    df['log_ur_' + classifier] = np.log(df['daily_ur_' + classifier])
-    df[classifier + '_flag'] = data['SYM']  # the SYM column is data flags
-    df.set_index('Date', inplace=True)
-    df = df.dropna(axis=0, how='any', subset=['daily_ur_' + classifier,
-                                              ])
+    data.drop(['Timestamp (UTC-08:00)'], axis=1, inplace=True)
 
-    return df
+    data.set_index('DateTime', inplace=True)
+
+    return data
 
 
 def getTestAndTrainingSets(p_val, p_test, data):
