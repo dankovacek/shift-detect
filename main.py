@@ -33,7 +33,14 @@ from bokeh.models import ColumnDataSource, Range1d, LinearAxis, Spacer, Band
 from bokeh.models import LassoSelectTool, BoxSelectTool, Legend, LegendItem
 from bokeh.models import Label, CDSView, GroupFilter, HoverTool
 from bokeh.models import HBar
-from bokeh.models.widgets import PreText, Select, Slider, DateRangeSlider, CheckboxGroup
+from bokeh.models.widgets import (
+    PreText,
+    Select,
+    Slider,
+    DateRangeSlider,
+    CheckboxGroup,
+    DateSlider,
+)
 from bokeh.plotting import figure
 from bokeh.palettes import Spectral11, Viridis11, Paired12
 
@@ -50,6 +57,7 @@ start_time = time.time()
 # set up data sources for bokeh plotting
 source = ColumnDataSource(data=dict())
 source_static = ColumnDataSource(data=dict())
+single_day_source = ColumnDataSource(data=dict())
 
 results_text = PreText(text="", width=250, height=90)
 
@@ -75,8 +83,6 @@ def get_data(s1, s2):
     s2_stage_header = [
         e for e in column_headers if 'Stage_' + VARS['s2_name'] in e]
 
-    print(all_data.head())
-
     all_data['stage_diff'] = all_data[s1_stage_header[0]] - \
         all_data[s2_stage_header[0]]
 
@@ -97,6 +103,13 @@ def update_time_range(attrname, old, new):
     source_static.data = source.data
 
 
+def update_highlighted_day(attrname, old, new):
+    VARS['selected_day'] = pd.to_datetime(single_day_selector.value)
+
+    data = get_data_subset((VARS['selected_day'], VARS['selected_day']))
+    single_day_source.data = single_day_source.from_df(data)
+
+
 def get_data_subset(time_range):
     df = get_data(*VARS['stations'])
     df = df[(df['DateTime'] >= pd.to_datetime(time_range[0]))
@@ -106,7 +119,6 @@ def get_data_subset(time_range):
 
 
 def update():
-
     files = []
     VARS['stations'] = {}
     for path in Path(DATA_DIR).glob('**/*.csv'):
@@ -136,9 +148,12 @@ def update():
     VARS['global_end'] = pd.to_datetime(df['DateTime'].values[-1])
     VARS['global_start'] = pd.to_datetime(df['DateTime'].values[0])
     VARS['time_range'] = (VARS['global_start'], VARS['global_end'])
+    VARS['selected_day'] = VARS['global_start']
 
     source.data = source.from_df(df)
     source_static.data = source.data
+    one_day_df = get_data_subset((VARS['selected_day'], VARS['selected_day']))
+    single_day_source.data = single_day_source.from_df(one_day_df)
 
 
 
@@ -156,7 +171,15 @@ date_selector = DateRangeSlider(title="Select Timeframe",
                                     VARS['time_range'][1],
                                 )
                                 )
+single_day_selector = DateSlider(title="Select Day",
+                                 end=VARS['global_end'],
+                                 start=VARS['global_start'],
+                                 step=1,
+                                 value=VARS['selected_day'],
+                                 )
+
 date_selector.on_change('value', update_time_range)
+single_day_selector.on_change('value', update_highlighted_day)
 
 
 ##################################################################
@@ -209,6 +232,12 @@ normalized_stage_fig.line('DateTime', 'normalized_stage_{}'.format(VARS['s1_name
 normalized_stage_fig.line('DateTime', 'normalized_stage_{}'.format(VARS['s2_name']), line_width=2,
                           color=mypalette[8], source=source, legend=VARS['s2_name'])
 
+# single-day selection series
+normalized_stage_fig.circle('DateTime', 'normalized_stage_{}'.format(VARS['s1_name']),
+                            color=mypalette[0], source=single_day_source, size=10)
+normalized_stage_fig.circle('DateTime', 'normalized_stage_{}'.format(VARS['s2_name']),
+                            color=mypalette[0], source=single_day_source, size=10)
+
 # Normalized Stage Vs. Stage Difference
 
 normalized_stage_correlation = figure(plot_width=400, plot_height=350,
@@ -230,6 +259,9 @@ normalized_stage_correlation.yaxis.major_label_text_font_size = '10pt'
 normalized_stage_correlation.circle('normalized_stage_{}'.format(VARS['s1_name']), 'normalized_stage_diff',
                                     color=mypalette[3], source=source, legend=VARS['s1_name'] + ' vs. difference')
 
+# single-day selection series
+normalized_stage_correlation.circle('normalized_stage_{}'.format(VARS['s1_name']), 'normalized_stage_diff',
+                                    color=mypalette[0], source=single_day_source, size=10)
 
 # Normalized Stage Difference Figure
 
@@ -273,6 +305,7 @@ layout = column(
     #     widgetbox(test_set_date_selector, width=400),
     #     ),
     row(normalized_stage_fig, normalized_stage_correlation),
+    widgetbox(single_day_selector, width=900),
     widgetbox(date_selector, width=900),
     row(normalized_stage_diff_fig)
 )
