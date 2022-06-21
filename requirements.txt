@@ -6,7 +6,7 @@ idna==2.6
 Jinja2==2.10
 MarkupSafe==1.0
 matplotlib==2.1.2
-numpy==1.14.0
+numpy==1.22.0
 packaging==16.8
 pandas==0.21.0
 patsy==0.4.1
